@@ -1,12 +1,15 @@
 use std::path::PathBuf;
+use std::io::{Read, Seek, SeekFrom};
+use std::fs::File;
+use std::ops::Range;
 
 use rocket::fs::NamedFile;
-use rocket::http::ContentType;
-// backend/src/api/episodes.rs - New file
+use rocket::http::{ContentType, Header, Status};
 use rocket::serde::json::Json;
 use rocket::State;
+use rocket::response::Responder;
+use rocket::{Request, Response};
 use sqlx::{Pool, Sqlite};
-use crate::api as api;
 
 use crate::db::models::Episode;
 use crate::error::{AppError, Result};
@@ -45,8 +48,161 @@ pub async fn get_episodes_by_season(season_id: String, db: &State<Pool<Sqlite>>)
     Ok(Json(episodes))
 }
 
+// Custom struct for handling range requests with support for seeking
+pub struct RangeFile {
+    file_path: PathBuf,
+    content_type: ContentType,
+    file_size: u64,
+}
+
+impl RangeFile {
+    pub fn new(file_path: PathBuf, content_type: ContentType) -> Result<Self> {
+        let metadata = std::fs::metadata(&file_path)
+            .map_err(|e| AppError::Io(e))?;
+        
+        Ok(Self {
+            file_path,
+            content_type,
+            file_size: metadata.len(),
+        })
+    }
+    
+    // Parse range header value like "bytes=0-1023"
+    fn parse_range_header(range_header: &str, file_size: u64) -> Option<Range<u64>> {
+        let bytes_prefix = "bytes=";
+        if !range_header.starts_with(bytes_prefix) {
+            return None;
+        }
+        
+        let range_str = &range_header[bytes_prefix.len()..];
+        let split: Vec<&str> = range_str.split('-').collect();
+        if split.len() != 2 {
+            return None;
+        }
+        
+        let start = match split[0].parse::<u64>() {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        
+        // Handle ranges like "bytes=1000-" (from 1000 to end)
+        let end = if split[1].is_empty() {
+            file_size - 1
+        } else {
+            match split[1].parse::<u64>() {
+                Ok(e) => e,
+                Err(_) => return None,
+            }
+        };
+        
+        // Validate range
+        if start > end || start >= file_size {
+            return None;
+        }
+        
+        // Ensure end doesn't exceed file size
+        let end = std::cmp::min(end, file_size - 1);
+        
+        Some(start..end + 1) // +1 because Range is exclusive on the end
+    }
+}
+
+impl<'r> Responder<'r, 'static> for RangeFile {
+    fn respond_to(self, req: &'r Request<'_>) -> rocket::response::Result<'static> {
+        // Check if we have a range header
+        let range_header = req.headers().get_one("Range");
+
+        match range_header {
+            Some(range_value) => {
+                // Parse the range
+                if let Some(byte_range) = Self::parse_range_header(range_value, self.file_size) {
+                    // Open the file
+                    let mut file = match File::open(&self.file_path) {
+                        Ok(f) => f,
+                        Err(_) => return Err(Status::InternalServerError),
+                    };
+
+                    // The length of content we'll return
+                    let range_length = byte_range.end - byte_range.start;
+
+                    // Seek to the start position
+                    if let Err(_) = file.seek(SeekFrom::Start(byte_range.start)) {
+                        return Err(Status::InternalServerError);
+                    }
+
+                    // Read the requested bytes
+                    let mut buffer = vec![0; range_length as usize];
+                    match file.read_exact(&mut buffer) {
+                        Ok(_) => (),
+                        // If we can't read the exact amount (e.g., EOF), adjust the buffer
+                        Err(_) => {
+                            // Alternative: read what we can
+                            let mut partial_buffer = Vec::new();
+                            if let Err(_) = file.read_to_end(&mut partial_buffer) {
+                                return Err(Status::InternalServerError);
+                            }
+                            buffer = partial_buffer;
+                        }
+                    }
+
+                    // Create the response
+                    let actual_length = buffer.len() as u64;
+                    let response = Response::build()
+                        .status(Status::PartialContent)
+                        .header(self.content_type.clone())
+                        .header(Header::new("Accept-Ranges", "bytes"))
+                        .header(Header::new(
+                            "Content-Range",
+                            format!(
+                                "bytes {}-{}/{}",
+                                byte_range.start,
+                                byte_range.start + actual_length - 1,
+                                self.file_size
+                            ),
+                        ))
+                        .header(Header::new("Content-Length", actual_length.to_string()))
+                        .sized_body(actual_length as usize, std::io::Cursor::new(buffer))
+                        .finalize();
+
+                    Ok(response)
+                } else {
+                    // Invalid range, return 416 Range Not Satisfiable
+                    let response = Response::build()
+                        .status(Status::RangeNotSatisfiable)
+                        .header(Header::new("Content-Range", format!("bytes */{}", self.file_size)))
+                        .finalize();
+
+                    Ok(response)
+                }
+            }
+            None => {
+                // No range header, return the full file with proper headers
+                let file = File::open(&self.file_path);
+                match file {
+                    Ok(mut file) => {
+                        let mut buffer = Vec::with_capacity(self.file_size as usize);
+                        if let Err(_) = file.read_to_end(&mut buffer) {
+                            return Err(Status::InternalServerError);
+                        }
+                        let response = Response::build()
+                            .status(Status::Ok)
+                            .header(self.content_type)
+                            .header(Header::new("Accept-Ranges", "bytes"))
+                            .header(Header::new("Content-Length", self.file_size.to_string()))
+                            .sized_body(buffer.len(), std::io::Cursor::new(buffer))
+                            .finalize();
+
+                        Ok(response)
+                    }
+                    Err(_) => Err(Status::InternalServerError),
+                }
+            }
+        }
+    }
+}
+
 #[get("/stream/<id>")]
-pub async fn stream_episode(id: String, db: &State<Pool<Sqlite>>) -> Result<api::media::TypedFile> {
+pub async fn stream_episode(id: String, db: &State<Pool<Sqlite>>) -> Result<RangeFile> {
     // Get the episode from the database
     let episode = sqlx::query_as::<_, Episode>("SELECT * FROM episodes WHERE id = ?")
         .bind(&id)
@@ -97,11 +253,6 @@ pub async fn stream_episode(id: String, db: &State<Pool<Sqlite>>) -> Result<api:
         _ => ContentType::Binary,
     };
 
-    // Only open the file if permissions are OK
-    let file = NamedFile::open(&path).await.map_err(AppError::Io)?;
-
-    Ok(api::media::TypedFile {
-        file,
-        content_type,
-    })
+    // Return the file with support for range requests
+    RangeFile::new(path, content_type)
 }
