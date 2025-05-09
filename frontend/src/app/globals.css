@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 20, 20, 20;
+  --background-dark-rgb: 9, 9, 9;
+  --primary-rgb: 229, 9, 20;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(15, 15, 15);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(40, 40, 40);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(60, 60, 60);
+}
+
+/* Media card hover effects */
+.media-card {
+  transition: all 0.3s ease;
+}
+
+.media-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+/* Video player controls overlay */
+.video-controls {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.video-container:hover .video-controls {
+  opacity: 1;
+}
+
+/* Progressbar customization */
+.progress-bar {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.progress-bar:hover {
+  height: 6px;
+}
+
+.progress-bar-fill {
+  position: absolute;
+  height: 100%;
+  background: rgb(var(--primary-rgb));
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+/* Spinner animation */
+.spinner {
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-left-color: rgb(var(--primary-rgb));
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Hero section with gradient overlay */
+.hero-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.7) 75%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+}
+
+/* Sidebar link styles */
+.sidebar-link {
+  @apply flex items-center gap-3 px-4 py-3 rounded-lg transition-colors;
+}
+
+.sidebar-link.active {
+  @apply bg-white/10;
+}
+
+.sidebar-link:hover:not(.active) {
+  @apply bg-white/5;
+}
+
+/* Form elements styling */
+.input-field {
+  @apply bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white w-full focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+}
+
+.button-primary {
+  @apply bg-primary hover:bg-primary-600 text-white py-2 px-6 rounded-lg font-medium transition-colors;
+}
+
+.button-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-white py-2 px-6 rounded-lg font-medium transition-colors;
+}
+
+.button-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white py-2 px-6 rounded-lg font-medium transition-colors;
+}

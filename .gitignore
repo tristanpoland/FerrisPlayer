@@ -12,3 +12,7 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+/frontend/node_modules
+/frontend/.next
+backend/db.sqlite
+/backend/src/Rick And Morty
