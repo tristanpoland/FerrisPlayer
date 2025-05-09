@@ -1,3 +1,4 @@
+// frontend/src/lib/api.ts - Add episode endpoints
 import axios from 'axios';
 import { Media, MediaDetails, Season, Episode, Person, Genre, Library, 
   WatchProgress, CreateLibraryDto, UpdateProgressDto, SearchResponse, 
@@ -34,12 +35,32 @@ export const getMediaByType = async (mediaType: string): Promise<Media[]> => {
 };
 
 export const getMediaDetails = async (id: string): Promise<MediaDetails> => {
-  const response = await api.get(`/media/info/${id}`);
+  const response = await api.get(`/media/info/${id}/details`);
   return response.data;
 };
 
 export const getMediaStreamUrl = (id: string): string => {
   return `${API_URL}/media/${id}/stream`;
+};
+
+// Episode endpoints
+export const getEpisode = async (id: string): Promise<Episode> => {
+  const response = await api.get(`/episodes/${id}`);
+  return response.data;
+};
+
+export const getEpisodesByMedia = async (mediaId: string): Promise<Episode[]> => {
+  const response = await api.get(`/episodes/media/${mediaId}`);
+  return response.data;
+};
+
+export const getEpisodesBySeason = async (seasonId: string): Promise<Episode[]> => {
+  const response = await api.get(`/episodes/season/${seasonId}`);
+  return response.data;
+};
+
+export const getEpisodeStreamUrl = (id: string): string => {
+  return `${API_URL}/episodes/stream/${id}`;
 };
 
 // Library endpoints

@@ -45,7 +45,7 @@ pub async fn get_episodes_by_season(season_id: String, db: &State<Pool<Sqlite>>)
     Ok(Json(episodes))
 }
 
-#[get("/<id>/stream")]
+#[get("/stream/<id>")]
 pub async fn stream_episode(id: String, db: &State<Pool<Sqlite>>) -> Result<api::media::TypedFile> {
     // Get the episode from the database
     let episode = sqlx::query_as::<_, Episode>("SELECT * FROM episodes WHERE id = ?")

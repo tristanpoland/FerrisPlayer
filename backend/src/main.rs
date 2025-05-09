@@ -136,6 +136,7 @@ async fn rocket() -> Rocket<Build> {
             api::episodes::get_episode,
             api::episodes::get_episodes_by_media,
             api::episodes::get_episodes_by_season,
+            api::episodes::stream_episode,
         ])
         .register("/", catchers![not_found])
         .manage(pool)

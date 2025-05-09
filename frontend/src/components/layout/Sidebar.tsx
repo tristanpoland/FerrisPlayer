@@ -35,9 +35,9 @@ export default function Sidebar() {
       <div className="p-4 flex items-center justify-between border-b border-gray-800">
         <Link href="/" className="flex items-center">
           {isExpanded ? (
-            <h1 className="text-xl font-bold text-primary">MediaRust</h1>
+            <h1 className="text-xl font-bold text-primary">FerrisPlayer</h1>
           ) : (
-            <h1 className="text-xl font-bold text-primary">MR</h1>
+            <h1 className="text-xl font-bold text-primary">FP</h1>
           )}
         </Link>
         <button
