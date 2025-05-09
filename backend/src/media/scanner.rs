@@ -60,14 +60,15 @@ pub async fn scan_movies(db: &Pool<Sqlite>, library: &Library) -> Result<serde_j
                 let now = Utc::now();
                 
                 sqlx::query(
-                    "INSERT INTO media (id, title, type, year, path, added_at, watch_count) 
-                     VALUES (?, ?, ?, ?, ?, ?, 0)"
+                    "INSERT INTO media (id, title, type, year, path, is_directory, added_at, watch_count) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 0)"
                 )
                 .bind(&id)
                 .bind(&title)
                 .bind("movie")
                 .bind(year)
                 .bind(&path_str)
+                .bind(false) // Movie is not a directory
                 .bind(now)
                 .execute(db)
                 .await
@@ -136,13 +137,14 @@ pub async fn scan_tv_shows(db: &Pool<Sqlite>, library: &Library) -> Result<serde
                     let now = Utc::now();
                     
                     sqlx::query(
-                        "INSERT INTO media (id, title, type, path, added_at, watch_count) 
-                         VALUES (?, ?, ?, ?, ?, 0)"
+                        "INSERT INTO media (id, title, type, path, is_directory, added_at, watch_count) 
+                         VALUES (?, ?, ?, ?, ?, ?, 0)"
                     )
                     .bind(&id)
                     .bind(&show_title)
                     .bind("tvshow")
                     .bind(&show_path)
+                    .bind(true) // TV show is a directory
                     .bind(now)
                     .execute(db)
                     .await
@@ -201,7 +203,8 @@ pub async fn scan_tv_shows(db: &Pool<Sqlite>, library: &Library) -> Result<serde
                 
                 // Create episode
                 let episode_id = generate_id();
-                let episode_title = format!("Episode {}", episode_num);
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                let episode_title = extract_episode_title(file_name, episode_num);
                 
                 sqlx::query(
                     "INSERT INTO episodes (id, media_id, season_id, episode_number, title, path) 
@@ -290,54 +293,132 @@ fn extract_year_from_filename(path: &Path) -> Option<i32> {
         })
 }
 
+// backend/src/media/scanner.rs - replace the extract_tv_info function
+
 fn extract_tv_info(path: &Path) -> Option<(String, i32, i32)> {
-    // Try to parse common TV show patterns like:
-    // - Show Name/Season 01/Show Name S01E02.mp4
-    // - Show Name/Season 1/Episode 02.mp4
-    
-    let file_name = path.file_name()?.to_str()?;
+    let file_name = path.file_name()?.to_str()?.to_lowercase();
     let parent = path.parent()?;
-    let parent_name = parent.file_name()?.to_str()?;
-    let show_dir = parent.parent()?;
-    let show_name = show_dir.file_name()?.to_str()?;
-    
-    // Check if parent folder is a season folder
-    let season_num = if parent_name.to_lowercase().contains("season") {
-        // Extract season number
+    let parent_name = parent.file_name()?.to_str()?.to_lowercase();
+    let grandparent = parent.parent()?;
+    let show_name = grandparent.file_name()?.to_str()?;
+
+    // Patterns to match:
+    // 1. S01E01 pattern (e.g., Show Name S01E01.mp4)
+    // 2. Season 1 Episode 1 pattern (e.g., Season 1/Episode 01.mp4)
+    // 3. 1x01 pattern (e.g., Show Name 1x01.mp4)
+    // 4. Season folders with episode numbers (e.g., Season 01/01 - Episode Title.mp4)
+
+    // First, determine if we're in a season folder
+    let season_num = if parent_name.contains("season") {
+        // Extract season number from "Season XX" format
         parent_name
             .chars()
             .filter(|c| c.is_digit(10))
             .collect::<String>()
             .parse::<i32>()
             .ok()?
+    } else if let Some(s_match) = file_name.find('s') {
+        // Try to extract from S01E01 format in filename
+        if s_match + 3 <= file_name.len() && file_name.chars().nth(s_match + 1)?.is_digit(10) {
+            file_name[s_match+1..s_match+3]
+                .parse::<i32>()
+                .ok()?
+        } else {
+            return None;
+        }
     } else {
-        return None;
+        // Try to match 1x01 format
+        let x_pos = file_name.find('x')?;
+        if x_pos > 0 && x_pos + 1 < file_name.len() {
+            let season_str = file_name[..x_pos].chars().filter(|c| c.is_digit(10)).collect::<String>();
+            if !season_str.is_empty() {
+                season_str.parse::<i32>().ok()?
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
     };
-    
-    // Try to find episode number
-    let episode_num = if file_name.to_lowercase().contains('e') {
-        // Try to match SxxEyy pattern
-        let e_pos = file_name.to_lowercase().find('e')?;
-        file_name[e_pos+1..]
-            .chars()
-            .take_while(|c| c.is_digit(10))
-            .collect::<String>()
-            .parse::<i32>()
-            .ok()?
+
+    // Now find episode number
+    let episode_num = if file_name.contains('e') && file_name.find('e')? > file_name.find('s')? {
+        // Handle S01E01 format
+        let e_pos = file_name.find('e')?;
+        if e_pos + 2 < file_name.len() && file_name.chars().nth(e_pos + 1)?.is_digit(10) {
+            file_name[e_pos+1..e_pos+3]
+                .parse::<i32>()
+                .ok()?
+        } else {
+            return None;
+        }
     } else if file_name.to_lowercase().contains("episode") {
-        // Try to match "Episode xx" pattern
-        file_name
-            .to_lowercase()
-            .find("episode")?;
-        file_name
-            .chars()
-            .filter(|c| c.is_digit(10))
-            .collect::<String>()
-            .parse::<i32>()
-            .ok()?
+        // Handle "Episode XX" format
+        let ep_pos = file_name.to_lowercase().find("episode")?;
+        let remaining = &file_name[ep_pos + 7..];
+        let num_str = remaining.chars().take_while(|c| c.is_digit(10)).collect::<String>();
+        if !num_str.is_empty() {
+            num_str.parse::<i32>().ok()?
+        } else {
+            return None;
+        }
+    } else if file_name.contains('x') {
+        // Handle 1x01 format
+        let x_pos = file_name.find('x')?;
+        if x_pos + 2 < file_name.len() && file_name.chars().nth(x_pos + 1)?.is_digit(10) {
+            file_name[x_pos+1..x_pos+3]
+                .parse::<i32>()
+                .ok()?
+        } else {
+            return None;
+        }
     } else {
-        return None;
+        // Try to parse episode number from the beginning of the filename
+        // e.g., "01 - Episode Title.mp4"
+        let num_str = file_name.chars()
+            .take_while(|c| c.is_digit(10))
+            .collect::<String>();
+        
+        if !num_str.is_empty() {
+            num_str.parse::<i32>().ok()?
+        } else {
+            return None;
+        }
     };
-    
+
     Some((show_name.to_string(), season_num, episode_num))
+}
+
+fn extract_episode_title(file_name: &str, episode_num: i32) -> String {
+    // Look for common patterns in episode naming:
+    // 1. "S01E01 - Episode Title.mp4"
+    // 2. "01 - Episode Title.mp4"
+    // 3. "Episode 01 - Episode Title.mp4"
+
+    // Remove file extension
+    let file_name_no_ext = if let Some(dot_pos) = file_name.rfind('.') {
+        &file_name[0..dot_pos]
+    } else {
+        file_name
+    };
+
+    // Try to find a separator after the episode number
+    if let Some(sep_pos) = file_name_no_ext.find(" - ") {
+        // Check if the separator is after the episode number marker
+        let before_sep = &file_name_no_ext[0..sep_pos];
+        if before_sep.to_lowercase().contains('e') && 
+           before_sep.to_lowercase().find('e').unwrap() < before_sep.len() - 2 {
+            // It's likely a S01E01 - Title format
+            return file_name_no_ext[sep_pos + 3..].trim().to_string();
+        } else if before_sep.chars().all(|c| c.is_digit(10) || c.is_whitespace()) {
+            // It's likely a 01 - Title format
+            return file_name_no_ext[sep_pos + 3..].trim().to_string();
+        } else if before_sep.to_lowercase().contains("episode") {
+            // It's likely a "Episode 01 - Title" format
+            return file_name_no_ext[sep_pos + 3..].trim().to_string();
+        }
+    }
+
+    // If we can't find a good title, use a generic one
+    format!("Episode {}", episode_num)
 }

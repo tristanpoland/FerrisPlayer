@@ -44,6 +44,31 @@ async fn run_migrations(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<(), sqlx::Err
     Ok(())
 }
 
+// Run a migration to add the is_directory field to existing media entries
+async fn update_tv_shows_field(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<(), sqlx::Error> {
+    // First check if is_directory column exists
+    let has_column = sqlx::query(
+        "SELECT 1 FROM pragma_table_info('media') WHERE name = 'is_directory'"
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if has_column.is_none() {
+        tracing::info!("Adding is_directory column to media table");
+        // Add the column if it doesn't exist
+        sqlx::query("ALTER TABLE media ADD COLUMN is_directory BOOLEAN DEFAULT 0")
+            .execute(pool)
+            .await?;
+    }
+
+    // Update TV shows to have is_directory = 1
+    sqlx::query("UPDATE media SET is_directory = 1 WHERE type = 'tvshow'")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 #[launch]
 async fn rocket() -> Rocket<Build> {
     // Initialize environment variables
@@ -87,12 +112,15 @@ async fn rocket() -> Rocket<Build> {
         .mount("/api/media", routes![
             api::media::get_all_media,
             api::media::get_media,
+            api::media::get_media_by_type,
             api::media::stream_media,
+            api::media::get_media_details,
         ])
         .mount("/api/libraries", routes![
             api::library::get_libraries,
             api::library::create_library,
             api::library::scan_library,
+            api::library::delete_library,
         ])
         .mount("/api/metadata", routes![
             api::metadata::search_external,
@@ -101,6 +129,13 @@ async fn rocket() -> Rocket<Build> {
         .mount("/api/progress", routes![
             api::progress::update_progress,
             api::progress::get_progress,
+            api::progress::delete_progress,
+            api::progress::get_watch_history,
+        ])
+        .mount("/api/episodes", routes![
+            api::episodes::get_episode,
+            api::episodes::get_episodes_by_media,
+            api::episodes::get_episodes_by_season,
         ])
         .register("/", catchers![not_found])
         .manage(pool)

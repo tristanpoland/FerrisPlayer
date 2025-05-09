@@ -20,6 +20,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -27,6 +28,8 @@ export default function Home() {
         
         // Fetch all media
         const allMedia = await getAllMedia();
+        
+        // Set media
         setMedia(allMedia);
         
         // Sort by added date to get recently added
@@ -35,24 +38,44 @@ export default function Home() {
         );
         setRecentlyAdded(sorted.slice(0, 10));
         
-        // Set featured media (show something with a backdrop)
+        // Set featured media (prioritize items with backdrops and higher ratings)
         const withBackdrop = allMedia.filter(item => item.backdrop_path);
         if (withBackdrop.length > 0) {
-          setFeaturedMedia(withBackdrop[Math.floor(Math.random() * withBackdrop.length)]);
+          // Prioritize newer items with higher ratings
+          const featured = [...withBackdrop]
+            .sort((a, b) => {
+              // Sort by rating (if available) and recency
+              const ratingA = a.rating ?? 0;
+              const ratingB = b.rating ?? 0;
+              const dateA = new Date(a.added_at).getTime();
+              const dateB = new Date(b.added_at).getTime();
+              
+              // Weight: 70% rating, 30% recency
+              return (ratingB * 0.7 + dateB * 0.3) - (ratingA * 0.7 + dateA * 0.3);
+            });
+          
+          setFeaturedMedia(featured[0]);
         } else if (allMedia.length > 0) {
           setFeaturedMedia(allMedia[0]);
         }
         
         // Fetch movies and TV shows
         const movieList = await getMediaByType('movie');
-        setMovies(movieList.slice(0, 10));
+        setMovies(movieList);
         
         const tvList = await getMediaByType('tvshow');
-        setTvShows(tvList.slice(0, 10));
+        setTvShows(tvList);
         
         // Fetch continue watching
         const history = await getWatchHistory();
-        setContinueWatching(history.filter(item => !item.completed).slice(0, 10));
+        
+        // Filter to show only items not completed and sort by most recently watched
+        const continueItems = history
+          .filter(item => !item.completed)
+          .sort((a, b) => new Date(b.watchedAt).getTime() - new Date(a.watchedAt).getTime())
+          .slice(0, 10);
+          
+        setContinueWatching(continueItems);
         
         setLoading(false);
       } catch (err) {
@@ -66,7 +89,7 @@ export default function Home() {
   }, []);
 
   if (loading) {
-    return <LoadingSpinner title={''} children={undefined} />;
+    return <LoadingSpinner title={''} />;
   }
 
   if (error) {

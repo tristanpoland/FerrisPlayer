@@ -19,7 +19,7 @@ interface MediaDetailProps {
 export default function MediaDetailPage({ params }: MediaDetailProps) {
   const { id } = params;
   const [media, setMedia] = useState<MediaDetails | null>(null);
-  const [expandedSeason, setExpandedSeason] = useState<string | null>(null);
+  const [expandedSeason, setExpandedSeason] = useState<string | null>(null); 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -166,18 +166,31 @@ export default function MediaDetailPage({ params }: MediaDetailProps) {
                 <div className="px-4 pb-4 divide-y divide-gray-800">
                   {episodes.map(episode => (
                     <div key={episode.id} className="py-3 flex justify-between items-center">
-                      <div>
+                      <div className="flex-1 pr-4">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-500">{episode.episode_number}.</span>
+                          <span className="text-gray-500 min-w-[24px]">{episode.episode_number}.</span>
                           <h5 className="font-medium">{episode.title}</h5>
                         </div>
                         {episode.overview && (
                           <p className="text-sm text-gray-400 mt-1 line-clamp-2">{episode.overview}</p>
                         )}
+                        {episode.runtime && (
+                          <p className="text-xs text-gray-500 mt-1">{Math.floor(episode.runtime / 60)}m</p>
+                        )}
                       </div>
+                      {episode.still_path && (
+                        <div className="relative w-24 h-14 mr-4 rounded overflow-hidden hidden md:block">
+                          <Image 
+                            src={episode.still_path} 
+                            alt={episode.title}
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      )}
                       <Link 
                         href={`/media/${media?.id}/play?episode=${episode.id}`}
-                        className="p-2 rounded-full bg-primary/10 hover:bg-primary/20"
+                        className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 flex-shrink-0"
                       >
                         <PlayIcon className="w-5 h-5" />
                       </Link>
@@ -193,7 +206,7 @@ export default function MediaDetailPage({ params }: MediaDetailProps) {
   };
 
   if (loading) {
-    return <LoadingSpinner title={''} children={undefined} />;
+    return <LoadingSpinner title={''} />;
   }
 
   if (error) {

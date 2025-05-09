@@ -3,14 +3,12 @@ use rocket::serde::json::Json;
 use rocket::{State, Response};
 use rocket::response::Responder;
 use rocket::fs::NamedFile;
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, Row};
 use std::path::PathBuf;
 
 use crate::db::models::Media;
 use crate::db::queries;
 use crate::error::{AppError, Result};
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
 
 #[get("/")]
 pub async fn get_all_media(db: &State<Pool<Sqlite>>) -> Result<Json<Vec<Media>>> {
@@ -18,7 +16,7 @@ pub async fn get_all_media(db: &State<Pool<Sqlite>>) -> Result<Json<Vec<Media>>>
     Ok(Json(media))
 }
 
-#[get("/<id>")]
+#[get("/info/<id>")]
 pub async fn get_media(id: String, db: &State<Pool<Sqlite>>) -> Result<Json<Media>> {
     let media = queries::get_media_by_id(db, &id).await?;
     Ok(Json(media))
@@ -32,9 +30,11 @@ pub async fn get_media_by_type(media_type: String, db: &State<Pool<Sqlite>>) -> 
 
 // Custom struct to wrap NamedFile with a content type
 pub struct TypedFile {
-    file: NamedFile,
-    content_type: ContentType,
+    pub file: NamedFile,
+    pub content_type: ContentType,
 }
+
+
 
 impl<'r> Responder<'r, 'static> for TypedFile {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> rocket::response::Result<'static> {
@@ -48,43 +48,39 @@ impl<'r> Responder<'r, 'static> for TypedFile {
     }
 }
 
-#[get("/<id>/stream")]
-pub async fn stream_media(id: String, db: &State<Pool<Sqlite>>) -> Result<TypedFile> {
+#[get("/info/<id>/stream?<episode>")]
+pub async fn stream_media(id: String, episode: Option<String>, db: &State<Pool<Sqlite>>) -> Result<TypedFile> {
     // Get the media file from the database
     let media = queries::get_media_by_id(db, &id).await?;
-
-    let path = PathBuf::from(&media.path);
-
-    // Check file existence and permissions before opening
-    match tokio::fs::metadata(&path).await {
-        Ok(metadata) => {
-            if !metadata.is_file() {
-                return Err(AppError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("Path is not a regular file: {}", path.display()),
-                )));
-            }
+    
+    // Determine the path based on media type and if episode is provided
+    let path = if media.media_type == "tvshow" {
+        if let Some(episode_id) = episode {
+            // Get the episode path
+            let row = sqlx::query("SELECT path FROM episodes WHERE id = ?")
+                .bind(&episode_id)
+                .fetch_optional(db.inner())
+                .await
+                .map_err(AppError::Database)?
+                .ok_or_else(|| AppError::NotFound(format!("Episode not found: {}", episode_id)))?;
+                
+            PathBuf::from(row.get::<String, _>("path"))
+        } else {
+            // No episode specified for a TV show
+            return Err(AppError::InvalidInput("Episode ID is required for TV shows".to_string()));
         }
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                return Err(AppError::Io(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("File not found: {}", path.display()),
-                )));
-            } else if e.kind() == std::io::ErrorKind::PermissionDenied {
-                return Err(AppError::Io(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    format!("Access is denied to file: {}", path.display()),
-                )));
-            } else {
-                return Err(AppError::Io(e));
-            }
-        }
-    }
-
+    } else {
+        // Regular media file (movie or music)
+        PathBuf::from(&media.path)
+    };
+    
+    // Open the file using NamedFile
+    let file = NamedFile::open(&path)
+        .await
+        .map_err(|e| AppError::Io(e))?;
+    
     // Determine content type based on file extension
     let content_type = match path.extension().and_then(|ext| ext.to_str()) {
-        None => ContentType::Binary,
         Some("mp4") => ContentType::MP4,
         Some("mkv") => ContentType::new("video", "x-matroska"),
         Some("avi") => ContentType::new("video", "x-msvideo"),
@@ -94,10 +90,8 @@ pub async fn stream_media(id: String, db: &State<Pool<Sqlite>>) -> Result<TypedF
         Some("m4a") => ContentType::new("audio", "mp4"),
         _ => ContentType::Binary,
     };
-
-    // Only open the file if permissions are OK
-    let file = NamedFile::open(&path).await.map_err(AppError::Io)?;
-
+    
+    // Return the file with the appropriate content type
     Ok(TypedFile {
         file,
         content_type,
@@ -105,7 +99,7 @@ pub async fn stream_media(id: String, db: &State<Pool<Sqlite>>) -> Result<TypedF
 }
 
 // Additional API to get detailed information about a media item
-#[get("/<id>/details")]
+#[get("/info/<id>/details")]
 pub async fn get_media_details(id: String, db: &State<Pool<Sqlite>>) -> Result<Json<serde_json::Value>> {
     // Get the media item
     let media = queries::get_media_by_id(db, &id).await?;

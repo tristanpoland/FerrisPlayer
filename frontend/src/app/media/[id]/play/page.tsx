@@ -13,6 +13,10 @@ import { ArrowLeftIcon,
          SpeakerWaveIcon, 
          SpeakerXMarkIcon, 
          ArrowsPointingOutIcon } from '@heroicons/react/24/solid';
+import axios from 'axios';
+
+// Define your API base URL here or import it from your config
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 interface VideoPlayerProps {
   params: {
@@ -49,12 +53,15 @@ export default function VideoPlayerPage({ params }: VideoPlayerProps) {
         const mediaData = await getMediaById(id);
         setMedia(mediaData);
         
-        // If there's an episode ID, we would fetch that too
-        // This would require an additional API endpoint in your backend
-        // For now, we'll just use a placeholder
+        // If there's an episode ID, fetch the episode details
         if (episodeId) {
-          // This is a placeholder; you'd implement a getEpisodeById function
-          // setEpisode(await getEpisodeById(episodeId));
+          try {
+            // Create a new endpoint for fetching episode details and use it here
+            const response = await axios.get(`${API_URL}/episodes/${episodeId}`);
+            setEpisode(response.data);
+          } catch (err) {
+            console.error('Failed to load episode:', err);
+          }
         }
         
         setLoading(false);
@@ -190,7 +197,7 @@ export default function VideoPlayerPage({ params }: VideoPlayerProps) {
   };
   
   if (loading) {
-    return <LoadingSpinner title={''} children={undefined} />;
+    return <LoadingSpinner title={''} />;
   }
   
   if (error) {

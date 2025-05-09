@@ -11,6 +11,7 @@ pub struct Media {
     pub media_type: String, // movie, tvshow, music
     pub year: Option<i32>,
     pub path: String,
+    pub is_directory: Option<bool>, // Added field to distinguish directories from files
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub overview: Option<String>,

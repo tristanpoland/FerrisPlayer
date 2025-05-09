@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS media (
     type TEXT NOT NULL, -- movie, tvshow, music
     year INTEGER,
     path TEXT NOT NULL,
+    is_directory BOOLEAN DEFAULT 0, -- Added this field to distinguish directories from files
     poster_path TEXT,
     backdrop_path TEXT,
     overview TEXT,

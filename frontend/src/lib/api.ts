@@ -24,7 +24,7 @@ export const getAllMedia = async (): Promise<Media[]> => {
 };
 
 export const getMediaById = async (id: string): Promise<Media> => {
-  const response = await api.get(`/media/${id}`);
+  const response = await api.get(`/media/info/${id}`);
   return response.data;
 };
 
@@ -34,7 +34,7 @@ export const getMediaByType = async (mediaType: string): Promise<Media[]> => {
 };
 
 export const getMediaDetails = async (id: string): Promise<MediaDetails> => {
-  const response = await api.get(`/media/${id}`);
+  const response = await api.get(`/media/info/${id}`);
   return response.data;
 };
 
