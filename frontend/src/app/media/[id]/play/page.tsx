@@ -62,7 +62,7 @@ const getStreamUrl = () => {
   if (episodeId) {
     return `${API_URL}/episodes/stream/${episodeId}`;
   } else {
-    return `${API_URL}/media/${id}/stream`;
+    return `${API_URL}/media/info/${id}/stream`;
   }
 };
 
