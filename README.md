@@ -196,5 +196,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 <div align="center">
-  <p>Built with ❤️ by [Your Name]</p>
+  <p>Built with ❤️ by Tristan J. Poland</p>
 </div>
